@@ -1,55 +1,45 @@
 use std::process::{Command, Stdio};
 
-pub fn disable_service(service: &str) {
-    // Stop service
-    let _ = Command::new("net")
-        .args(&["stop", service])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    // Disable startup
+pub fn set_service_startup(service: &str, startup: &str) {
     let _ = Command::new("sc")
-        .args(&["config", service, "start=", "disabled"])
+        .args(&["config", service, "start=", startup])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
 }
 
-pub fn enable_service(service: &str) {
-    // Enable startup
-    let _ = Command::new("sc")
-        .args(&["config", service, "start=", "auto"])
+pub fn reset_group_policy() {
+    let _ = Command::new("secedit")
+        .args(&["/configure", "/cfg", r"C:\Windows\inf\defltbase.inf", "/db", "defltbase.sdb", "/verbose"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-
-    // Start service
-    let _ = Command::new("net")
-        .args(&["start", service])
+    
+    let _ = Command::new("cmd")
+        .args(&["/c", "RD", "/S", "/Q", r"C:\Windows\System32\GroupPolicyUsers"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-}
-
-pub fn enable_waasmedic(service: &str) {
-    // Enable startup as demand (manual)
-    let _ = Command::new("sc")
-        .args(&["config", service, "start=", "demand"])
+    
+    let _ = Command::new("cmd")
+        .args(&["/c", "RD", "/S", "/Q", r"C:\Windows\System32\GroupPolicy"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-
-    // Start service
-    let _ = Command::new("net")
-        .args(&["start", service])
+    
+    let _ = Command::new("gpupdate")
+        .arg("/force")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
 }
 
 pub fn get_service_status(service: &str) -> String {
-    let output = Command::new("sc").args(&["qc", service]).output();
+    let output = Command::new("sc")
+        .args(&["qc", service])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
 
     match output {
         Ok(output) => {

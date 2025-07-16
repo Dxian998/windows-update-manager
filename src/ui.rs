@@ -28,7 +28,8 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(vertical_chunks[1])[1]
 }
 
-pub fn render_status_block(is_blocked: bool) -> Paragraph<'static> {
+pub fn render_status_block() -> Paragraph<'static> {
+    let (is_blocked, status_details) = super::update::get_update_status();
     let theme_color = if is_blocked { Color::Red } else { Color::Green };
 
     let status_text = if is_blocked {
@@ -47,29 +48,43 @@ pub fn render_status_block(is_blocked: bool) -> Paragraph<'static> {
         )
     };
 
-    let registry_status = super::update::get_registry_status();
-    let wua_status = super::services::get_service_status("wuauserv");
-    let uso_status = super::services::get_service_status("UsoSvc");
-    let medic_status = super::services::get_service_status("WaaSMedicSvc");
-
     let status_lines = vec![
         Spans::from(status_text),
         Spans::from(""),
         Spans::from(vec![
             Span::raw("Registry Status:   "),
-            Span::styled(registry_status, Style::default().fg(theme_color)),
+            Span::styled(
+                status_details[0].1.clone(),
+                Style::default().fg(theme_color),
+            ),
+        ]),
+        Spans::from(vec![
+            Span::raw("BITS:             "),
+            Span::styled(
+                status_details[1].1.clone(),
+                Style::default().fg(theme_color),
+            ),
         ]),
         Spans::from(vec![
             Span::raw("wuauserv:         "),
-            Span::styled(wua_status, Style::default().fg(theme_color)),
+            Span::styled(
+                status_details[2].1.clone(),
+                Style::default().fg(theme_color),
+            ),
         ]),
         Spans::from(vec![
             Span::raw("UsoSvc:           "),
-            Span::styled(uso_status, Style::default().fg(theme_color)),
+            Span::styled(
+                status_details[3].1.clone(),
+                Style::default().fg(theme_color),
+            ),
         ]),
         Spans::from(vec![
             Span::raw("WaaSMedicSvc:     "),
-            Span::styled(medic_status, Style::default().fg(theme_color)),
+            Span::styled(
+                status_details[4].1.clone(),
+                Style::default().fg(theme_color),
+            ),
         ]),
     ];
 
@@ -114,7 +129,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
     frame.render_widget(title, chunks[0]);
 
     // Status block
-    let status_paragraph = render_status_block(app.update_blocked);
+    let status_paragraph = render_status_block();
     frame.render_widget(status_paragraph, chunks[1]);
 
     // Menu items
@@ -171,7 +186,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
             .border_style(Style::default().fg(theme_color));
 
         let para = Paragraph::new(Span::styled(
-            "Please wait while the operation complees...",
+            "Please wait while the operation completes...",
             Style::default().fg(theme_color),
         ))
         .block(block)
