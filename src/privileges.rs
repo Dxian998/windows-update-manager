@@ -1,12 +1,14 @@
 use std::io;
-use winapi::um::{
-    handleapi::CloseHandle,
-    processthreadsapi::{GetCurrentProcess, OpenProcessToken},
-    securitybaseapi::GetTokenInformation,
-    winnt::{HANDLE, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
-};
+use std::process::Command;
 
 pub fn is_elevated() -> io::Result<bool> {
+    use winapi::um::{
+        handleapi::CloseHandle,
+        processthreadsapi::{GetCurrentProcess, OpenProcessToken},
+        securitybaseapi::GetTokenInformation,
+        winnt::{HANDLE, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
+    };
+
     unsafe {
         let mut token_handle: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle) == 0 {
@@ -35,17 +37,20 @@ pub fn is_elevated() -> io::Result<bool> {
     }
 }
 
-pub fn elevate() {
-    let exe = std::env::current_exe().unwrap();
-    std::process::Command::new("powershell")
+pub fn elevate() -> io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let status = Command::new("powershell")
         .args(&[
             "-Command",
             &format!(
-                "Start-Process -FilePath '{}' -Verb RunAs -WindowStyle Hidden",
-                exe.to_str().unwrap()
+                "Start-Process -FilePath '{}' -Verb RunAs",
+                exe.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Invalid executable path"))?
             ),
         ])
-        .spawn()
-        .unwrap();
-    std::process::exit(0);
+        .spawn();
+
+    match status {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
 }

@@ -1,4 +1,6 @@
-use crate::services;
+use crate::services::{
+    disable_service, enable_service, enable_waasmedic, get_service_status,
+};
 use winreg::{RegKey, enums::*};
 
 pub fn block_updates() {
@@ -28,9 +30,9 @@ pub fn block_updates() {
     }
 
     // Disable services
-    services::disable_service("wuauserv");
-    services::disable_service("UsoSvc");
-    services::disable_service("WaaSMedicSvc");
+    disable_service("wuauserv");
+    disable_service("UsoSvc");
+    disable_service("WaaSMedicSvc");
 }
 
 pub fn enable_updates() {
@@ -41,13 +43,14 @@ pub fn enable_updates() {
     let _ = hklm.delete_subkey("SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate");
 
     // Enable services
-    services::enable_service("wuauserv");
-    services::enable_service("UsoSvc");
-    services::enable_service("WaaSMedicSvc");
+    enable_service("wuauserv");
+    enable_service("UsoSvc");
+    enable_waasmedic("WaaSMedicSvc");
 }
 
 pub fn check_update_status() -> bool {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let mut reg_blocked = false;
 
     // Check registry settings
     if let Ok(au_key) = hklm.open_subkey_with_flags(
@@ -56,15 +59,17 @@ pub fn check_update_status() -> bool {
     ) {
         if let Ok(no_auto_update) = au_key.get_value::<u32, _>("NoAutoUpdate") {
             if no_auto_update == 1 {
-                return true;
+                reg_blocked = true;
             }
         }
     }
 
     // Check service status
-    services::get_service_status("wuauserv") == "Disabled"
-        || services::get_service_status("UsoSvc") == "Disabled"
-        || services::get_service_status("WaaSMedicSvc") == "Disabled"
+    let wuauserv_disabled = get_service_status("wuauserv") == "Disabled";
+    let usosvc_disabled = get_service_status("UsoSvc") == "Disabled";
+
+    // if (registry blocked AND wuauserv disabled) OR (wuauserv AND UsoSvc disabled)
+    (reg_blocked && wuauserv_disabled) || (wuauserv_disabled && usosvc_disabled)
 }
 
 pub fn get_registry_status() -> String {

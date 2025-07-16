@@ -11,7 +11,7 @@ use tui::{Terminal, backend::CrosstermBackend};
 
 fn main() -> io::Result<()> {
     if !privileges::is_elevated()? {
-        privileges::elevate();
+        let _ = privileges::elevate();
         return Ok(());
     }
 

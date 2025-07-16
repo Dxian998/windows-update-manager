@@ -32,6 +32,22 @@ pub fn enable_service(service: &str) {
         .status();
 }
 
+pub fn enable_waasmedic(service: &str) {
+    // Enable startup as demand (manual)
+    let _ = Command::new("sc")
+        .args(&["config", service, "start=", "demand"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    // Start service
+    let _ = Command::new("net")
+        .args(&["start", service])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 pub fn get_service_status(service: &str) -> String {
     let output = Command::new("sc").args(&["qc", service]).output();
 
