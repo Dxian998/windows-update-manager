@@ -22,6 +22,7 @@ pub fn block_updates() {
     for service in &["BITS", "wuauserv"] {
         set_service_startup(service, "disabled");
     }
+    clean()
 }
 
 pub fn enable_updates() {
@@ -167,4 +168,27 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     }
 
     (is_blocked, status_details)
+}
+
+pub fn clean() {
+    let mut dl_path = PathBuf::from(r"C:\");
+    dl_path.push("Windows");
+    dl_path.push("SoftwareDistribution");
+    dl_path.push("Download");
+
+    match fs::read_dir(&dl_path) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    let _ = if path.is_dir() {
+                        fs::remove_dir_all(&path)
+                    } else {
+                        fs::remove_file(&path)
+                    };
+                }
+            }
+        }
+        Err(_) => {}
+    }
 }
