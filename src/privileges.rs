@@ -44,7 +44,10 @@ pub fn elevate() -> io::Result<()> {
             "-Command",
             &format!(
                 "Start-Process -FilePath '{}' -Verb RunAs",
-                exe.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Invalid executable path"))?
+                exe.to_str().ok_or_else(|| io::Error::new(
+                    io::ErrorKind::Other,
+                    "Invalid executable path"
+                ))?
             ),
         ])
         .spawn();

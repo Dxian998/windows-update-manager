@@ -10,23 +10,36 @@ pub fn set_service_startup(service: &str, startup: &str) {
 
 pub fn reset_group_policy() {
     let _ = Command::new("secedit")
-        .args(&["/configure", "/cfg", r"C:\Windows\inf\defltbase.inf", "/db", "defltbase.sdb", "/verbose"])
+        .args(&[
+            "/configure",
+            "/cfg",
+            r"C:\Windows\inf\defltbase.inf",
+            "/db",
+            "defltbase.sdb",
+            "/verbose",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    
+
     let _ = Command::new("cmd")
-        .args(&["/c", "RD", "/S", "/Q", r"C:\Windows\System32\GroupPolicyUsers"])
+        .args(&[
+            "/c",
+            "RD",
+            "/S",
+            "/Q",
+            r"C:\Windows\System32\GroupPolicyUsers",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    
+
     let _ = Command::new("cmd")
         .args(&["/c", "RD", "/S", "/Q", r"C:\Windows\System32\GroupPolicy"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    
+
     let _ = Command::new("gpupdate")
         .arg("/force")
         .stdout(Stdio::null())

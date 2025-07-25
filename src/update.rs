@@ -1,22 +1,31 @@
 // Thanks to Chris Titus for the original PowerShell script
 // NOTE: Force updating still causes updates that way MS Store and xbox app work.
 
+use std::fs;
+use std::path::PathBuf;
 use winreg::{RegKey, enums::*};
-use crate::services::{get_service_status, set_service_startup, reset_group_policy};
+
+use crate::services::{get_service_status, reset_group_policy, set_service_startup};
 
 pub fn block_updates() {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
     // Configure registry
-    let (au_key, _) = hklm.create_subkey(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU")
+    let (au_key, _) = hklm
+        .create_subkey(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU")
         .expect("Failed to create AU key");
-    au_key.set_value("NoAutoUpdate", &1u32).expect("Write failed");
+    au_key
+        .set_value("NoAutoUpdate", &1u32)
+        .expect("Write failed");
     au_key.set_value("AUOptions", &1u32).expect("Write failed");
 
     // Configure Delivery Optimization
-    let (do_key, _) = hklm.create_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config")
+    let (do_key, _) = hklm
+        .create_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config")
         .expect("Failed to create DO key");
-    do_key.set_value("DODownloadMode", &0u32).expect("Write failed");
+    do_key
+        .set_value("DODownloadMode", &0u32)
+        .expect("Write failed");
 
     // Disable services
     for service in &["BITS", "wuauserv"] {
@@ -31,7 +40,7 @@ pub fn enable_updates() {
     // Reset registry
     if let Ok(au_key) = hklm.open_subkey_with_flags(
         r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
-        KEY_WRITE
+        KEY_WRITE,
     ) {
         let _ = au_key.set_value("NoAutoUpdate", &0u32);
         let _ = au_key.set_value("AUOptions", &3u32);
@@ -40,7 +49,7 @@ pub fn enable_updates() {
     // Reset Delivery Optimization
     if let Ok(do_key) = hklm.open_subkey_with_flags(
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config",
-        KEY_WRITE
+        KEY_WRITE,
     ) {
         let _ = do_key.set_value("DODownloadMode", &1u32);
     }
@@ -52,16 +61,46 @@ pub fn enable_updates() {
 
     // Remove registry values
     let keys_to_clean = vec![
-        (r"SOFTWARE\Policies\Microsoft\Windows\Device Metadata", "PreventDeviceMetadataFromNetwork"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching", "DontPromptForWindowsUpdate"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching", "DontSearchWindowsUpdate"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching", "DriverUpdateWizardWuSearchEnabled"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", "ExcludeWUDriversInQualityUpdate"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU", "NoAutoRebootWithLoggedOnUsers"),
-        (r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU", "AUPowerManagement"),
-        (r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", "BranchReadinessLevel"),
-        (r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", "DeferFeatureUpdatesPeriodInDays"),
-        (r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", "DeferQualityUpdatesPeriodInDays"),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\Device Metadata",
+            "PreventDeviceMetadataFromNetwork",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching",
+            "DontPromptForWindowsUpdate",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching",
+            "DontSearchWindowsUpdate",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\DriverSearching",
+            "DriverUpdateWizardWuSearchEnabled",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate",
+            "ExcludeWUDriversInQualityUpdate",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
+            "NoAutoRebootWithLoggedOnUsers",
+        ),
+        (
+            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
+            "AUPowerManagement",
+        ),
+        (
+            r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings",
+            "BranchReadinessLevel",
+        ),
+        (
+            r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings",
+            "DeferFeatureUpdatesPeriodInDays",
+        ),
+        (
+            r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings",
+            "DeferQualityUpdatesPeriodInDays",
+        ),
     ];
 
     for (key_path, value) in keys_to_clean {
@@ -80,7 +119,8 @@ pub fn enable_updates() {
     for tree in trees_to_delete {
         let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(tree);
         let _ = RegKey::predef(HKEY_LOCAL_MACHINE).delete_subkey_all(tree);
-        let _ = RegKey::predef(HKEY_LOCAL_MACHINE).delete_subkey_all(&format!(r"SOFTWARE\WOW6432Node\{}", tree));
+        let _ = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .delete_subkey_all(&format!(r"SOFTWARE\WOW6432Node\{}", tree));
     }
 
     // Reset group policies
@@ -98,7 +138,7 @@ pub fn check_update_status() -> bool {
     if let Ok(au_key) = hklm.open_subkey(au_key_path) {
         let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
         let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
-        
+
         if let Ok(do_key) = hklm.open_subkey(do_key_path) {
             let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
             if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
@@ -108,14 +148,12 @@ pub fn check_update_status() -> bool {
     }
 
     // Check service statuses
-    let services = vec![
-        "BITS",
-        "wuauserv",
-        "UsoSvc",
-        "WaaSMedicSvc",
-    ];
+    let services = vec!["BITS", "wuauserv", "UsoSvc", "WaaSMedicSvc"];
 
-    if services.iter().any(|&service| get_service_status(service) == "Disabled") {
+    if services
+        .iter()
+        .any(|&service| get_service_status(service) == "Disabled")
+    {
         is_blocked = true;
     }
 
@@ -134,7 +172,7 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let registry_status = if let Ok(au_key) = hklm.open_subkey(au_key_path) {
         let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
         let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
-        
+
         if let Ok(do_key) = hklm.open_subkey(do_key_path) {
             let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
             if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
