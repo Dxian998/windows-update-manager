@@ -34,16 +34,11 @@ pub fn block_updates() {
 
 pub fn enable_updates() {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    /*
-    // Reset registry
-    if let Ok(au_key) = hklm.open_subkey_with_flags(
-        r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
-        KEY_WRITE,
-    ) {
-        let _ = au_key.set_value("NoAutoUpdate", &0u32);
-        let _ = au_key.set_value("AUOptions", &3u32);
-    }
 
+    // Delete registry
+    let _ = hklm.delete_subkey_all(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU");
+
+    /*
     // Reset Delivery Optimization
     if let Ok(do_key) = hklm.open_subkey_with_flags(
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config",
@@ -79,14 +74,6 @@ pub fn enable_updates() {
         (
             r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate",
             "ExcludeWUDriversInQualityUpdate",
-        ),
-        (
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
-            "NoAutoUpdate",
-        ),
-        (
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
-            "AUOptions",
         ),
         (
             r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings",
