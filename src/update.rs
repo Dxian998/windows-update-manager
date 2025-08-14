@@ -1,11 +1,8 @@
-// Thanks to Chris Titus for the original PowerShell script
 // NOTE: Force updating still causes updates that way MS Store and xbox app work.
 
-use std::fs;
-use std::path::PathBuf;
 use winreg::{RegKey, enums::*};
 
-use crate::services::{get_service_status, reset_group_policy, set_service_startup};
+// use crate::services::{get_service_status, reset_group_policy, set_service_startup};
 
 pub fn block_updates() {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -17,8 +14,9 @@ pub fn block_updates() {
     au_key
         .set_value("NoAutoUpdate", &1u32)
         .expect("Write failed");
-    au_key.set_value("AUOptions", &1u32).expect("Write failed");
+    // au_key.set_value("AUOptions", &1u32).expect("Write failed");
 
+    /*
     // Configure Delivery Optimization
     let (do_key, _) = hklm
         .create_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config")
@@ -31,7 +29,7 @@ pub fn block_updates() {
     for service in &["BITS", "wuauserv"] {
         set_service_startup(service, "disabled");
     }
-    clean()
+    */
 }
 
 pub fn enable_updates() {
@@ -46,6 +44,7 @@ pub fn enable_updates() {
         let _ = au_key.set_value("AUOptions", &3u32);
     }
 
+    /*
     // Reset Delivery Optimization
     if let Ok(do_key) = hklm.open_subkey_with_flags(
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config",
@@ -58,6 +57,7 @@ pub fn enable_updates() {
     for service in &["BITS", "wuauserv"] {
         set_service_startup(service, "auto");
     }
+    */
 
     // Remove registry values
     let keys_to_clean = vec![
@@ -108,7 +108,7 @@ pub fn enable_updates() {
             let _ = key.delete_value(value);
         }
     }
-
+    /*
     // Delete registry trees
     let trees_to_delete = vec![
         r"Software\Microsoft\Windows\CurrentVersion\Policies",
@@ -125,6 +125,7 @@ pub fn enable_updates() {
 
     // Reset group policies
     reset_group_policy();
+    */
 }
 
 pub fn check_update_status() -> bool {
@@ -147,6 +148,7 @@ pub fn check_update_status() -> bool {
         }
     }
 
+    /*
     // Check service statuses
     let services = vec!["BITS", "wuauserv", "UsoSvc", "WaaSMedicSvc"];
 
@@ -156,10 +158,40 @@ pub fn check_update_status() -> bool {
     {
         is_blocked = true;
     }
-
+    */
     is_blocked
 }
 
+pub fn get_update_status() -> (bool, Vec<(String, String)>) {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let mut is_blocked = false;
+    
+    // Check registry settings
+    let au_key_path = r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
+    let do_key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config";
+    
+    let registry_status = if let Ok(au_key) = hklm.open_subkey(au_key_path) {
+        let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
+        let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
+        if let Ok(do_key) = hklm.open_subkey(do_key_path) {
+            let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
+            if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
+                is_blocked = true;
+                "Blocked".to_string()
+            } else {
+                "Enabled".to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        }
+    } else {
+        "Enabled".to_string()
+    };
+    
+    (is_blocked, vec![("Registry Status".to_string(), registry_status)])
+}
+
+/* Legacy Function
 pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let mut is_blocked = false;
@@ -187,7 +219,7 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     } else {
         "Enabled".to_string()
     };
-
+    
     // Check service statuses
     let services = vec![
         ("BITS", get_service_status("BITS")),
@@ -207,26 +239,4 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
 
     (is_blocked, status_details)
 }
-
-pub fn clean() {
-    let mut dl_path = PathBuf::from(r"C:\");
-    dl_path.push("Windows");
-    dl_path.push("SoftwareDistribution");
-    dl_path.push("Download");
-
-    match fs::read_dir(&dl_path) {
-        Ok(entries) => {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    let _ = if path.is_dir() {
-                        fs::remove_dir_all(&path)
-                    } else {
-                        fs::remove_file(&path)
-                    };
-                }
-            }
-        }
-        Err(_) => {}
-    }
-}
+*/

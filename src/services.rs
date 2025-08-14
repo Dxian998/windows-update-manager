@@ -1,3 +1,4 @@
+/*
 use std::process::{Command, Stdio};
 
 pub fn set_service_startup(service: &str, startup: &str) {
@@ -72,3 +73,4 @@ pub fn get_service_status(service: &str) -> String {
         Err(_) => "Error".into(),
     }
 }
+*/
