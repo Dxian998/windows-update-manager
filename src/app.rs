@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tui::{Terminal, backend::CrosstermBackend, widgets::ListState};
-use webbrowser;
+use open;
 
 const DEBOUNCE_DELAY: u64 = 150;
 
@@ -85,6 +85,6 @@ impl App {
     // This function links to the official GitHub repository and should not be modified directly.
     // It aligns with the MIT License, which requires attribution. To propose changes, please open up a pull request.
     pub fn open_github(&self) {
-        let _ = webbrowser::open("https://github.com/0xSovereign/windows-update-manager");
+        let _ = open::that("https://github.com/0xSovereign/windows-update-manager");
     }
 }

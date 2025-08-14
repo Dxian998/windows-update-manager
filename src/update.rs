@@ -130,113 +130,34 @@ pub fn enable_updates() {
 
 pub fn check_update_status() -> bool {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let mut is_blocked = false;
-
-    // Check registry settings
+    
     let au_key_path = r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
-    let do_key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config";
-
+    
     if let Ok(au_key) = hklm.open_subkey(au_key_path) {
         let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
-        let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
-
-        if let Ok(do_key) = hklm.open_subkey(do_key_path) {
-            let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
-            if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
-                is_blocked = true;
-            }
-        }
+        // Only check NoAutoUpdate - simple and consistent
+        no_auto_update == 1
+    } else {
+        false
     }
-
-    /*
-    // Check service statuses
-    let services = vec!["BITS", "wuauserv", "UsoSvc", "WaaSMedicSvc"];
-
-    if services
-        .iter()
-        .any(|&service| get_service_status(service) == "Disabled")
-    {
-        is_blocked = true;
-    }
-    */
-    is_blocked
 }
 
 pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let mut is_blocked = false;
     
-    // Check registry settings
     let au_key_path = r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
-    let do_key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config";
     
-    let registry_status = if let Ok(au_key) = hklm.open_subkey(au_key_path) {
+    let (is_blocked, registry_status) = if let Ok(au_key) = hklm.open_subkey(au_key_path) {
         let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
-        let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
-        if let Ok(do_key) = hklm.open_subkey(do_key_path) {
-            let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
-            if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
-                is_blocked = true;
-                "Blocked".to_string()
-            } else {
-                "Enabled".to_string()
-            }
+
+        if no_auto_update == 1 {
+            (true, "Blocked".to_string())
         } else {
-            "Unknown".to_string()
+            (false, "Enabled".to_string())
         }
     } else {
-        "Enabled".to_string()
+        (false, "Enabled".to_string())
     };
     
     (is_blocked, vec![("Registry Status".to_string(), registry_status)])
 }
-
-/* Legacy Function
-pub fn get_update_status() -> (bool, Vec<(String, String)>) {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let mut is_blocked = false;
-    let mut status_details = Vec::new();
-
-    // Check registry settings
-    let au_key_path = r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
-    let do_key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config";
-
-    let registry_status = if let Ok(au_key) = hklm.open_subkey(au_key_path) {
-        let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
-        let au_options: u32 = au_key.get_value("AUOptions").unwrap_or(0);
-
-        if let Ok(do_key) = hklm.open_subkey(do_key_path) {
-            let do_download_mode: u32 = do_key.get_value("DODownloadMode").unwrap_or(1);
-            if no_auto_update == 1 && au_options == 1 && do_download_mode == 0 {
-                is_blocked = true;
-                "Blocked".to_string()
-            } else {
-                "Enabled".to_string()
-            }
-        } else {
-            "Unknown".to_string()
-        }
-    } else {
-        "Enabled".to_string()
-    };
-    
-    // Check service statuses
-    let services = vec![
-        ("BITS", get_service_status("BITS")),
-        ("wuauserv", get_service_status("wuauserv")),
-        ("UsoSvc", get_service_status("UsoSvc")),
-        ("WaaSMedicSvc", get_service_status("WaaSMedicSvc")),
-    ];
-
-    if services.iter().any(|(_, status)| status == "Disabled") {
-        is_blocked = true;
-    }
-
-    status_details.push(("Registry Status".to_string(), registry_status));
-    for (service, status) in services {
-        status_details.push((service.to_string(), status));
-    }
-
-    (is_blocked, status_details)
-}
-*/
