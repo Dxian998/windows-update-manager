@@ -2,12 +2,12 @@ use crate::{ui, update};
 use crossterm::event::Event;
 use std::{
     io,
-    process::Command,
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
 use tui::{Terminal, backend::CrosstermBackend, widgets::ListState};
+use webbrowser;
 
 const DEBOUNCE_DELAY: u64 = 150;
 
@@ -85,12 +85,6 @@ impl App {
     // This function links to the official GitHub repository and should not be modified directly.
     // It aligns with the MIT License, which requires attribution. To propose changes, please open up a pull request.
     pub fn open_github(&self) {
-        let _ = Command::new("cmd")
-            .args(&[
-                "/C",
-                "start",
-                "https://github.com/0xSovereign/windows-update-manager",
-            ])
-            .spawn();
+        let _ = webbrowser::open("https://github.com/0xSovereign/windows-update-manager");
     }
 }

@@ -57,7 +57,7 @@ pub fn render_status_block() -> Paragraph<'static> {
                 status_details[0].1.clone(),
                 Style::default().fg(theme_color),
             ),
-        ]),
+        /*
         Spans::from(vec![
             Span::raw("BITS:             "),
             Span::styled(
@@ -85,6 +85,7 @@ pub fn render_status_block() -> Paragraph<'static> {
                 status_details[4].1.clone(),
                 Style::default().fg(theme_color),
             ),
+        */
         ]),
     ];
 
