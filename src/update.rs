@@ -2,8 +2,6 @@
 
 use winreg::{RegKey, enums::*};
 
-// use crate::services::{get_service_status, reset_group_policy, set_service_startup};
-
 pub fn block_updates() {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
@@ -14,22 +12,6 @@ pub fn block_updates() {
     au_key
         .set_value("NoAutoUpdate", &1u32)
         .expect("Write failed");
-    // au_key.set_value("AUOptions", &1u32).expect("Write failed");
-
-    /*
-    // Configure Delivery Optimization
-    let (do_key, _) = hklm
-        .create_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config")
-        .expect("Failed to create DO key");
-    do_key
-        .set_value("DODownloadMode", &0u32)
-        .expect("Write failed");
-
-    // Disable services
-    for service in &["BITS", "wuauserv"] {
-        set_service_startup(service, "disabled");
-    }
-    */
 }
 
 pub fn enable_updates() {
@@ -37,21 +19,6 @@ pub fn enable_updates() {
 
     // Delete registry
     let _ = hklm.delete_subkey_all(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU");
-
-    /*
-    // Reset Delivery Optimization
-    if let Ok(do_key) = hklm.open_subkey_with_flags(
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config",
-        KEY_WRITE,
-    ) {
-        let _ = do_key.set_value("DODownloadMode", &1u32);
-    }
-
-    // Enable services
-    for service in &["BITS", "wuauserv"] {
-        set_service_startup(service, "auto");
-    }
-    */
 
     // Remove registry values
     let keys_to_clean = vec![
@@ -94,24 +61,6 @@ pub fn enable_updates() {
             let _ = key.delete_value(value);
         }
     }
-    /*
-    // Delete registry trees
-    let trees_to_delete = vec![
-        r"Software\Microsoft\Windows\CurrentVersion\Policies",
-        r"Software\Microsoft\WindowsSelfHost",
-        r"Software\Policies",
-    ];
-
-    for tree in trees_to_delete {
-        let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(tree);
-        let _ = RegKey::predef(HKEY_LOCAL_MACHINE).delete_subkey_all(tree);
-        let _ = RegKey::predef(HKEY_LOCAL_MACHINE)
-            .delete_subkey_all(&format!(r"SOFTWARE\WOW6432Node\{}", tree));
-    }
-
-    // Reset group policies
-    reset_group_policy();
-    */
 }
 
 pub fn check_update_status() -> bool {
@@ -121,7 +70,6 @@ pub fn check_update_status() -> bool {
     
     if let Ok(au_key) = hklm.open_subkey(au_key_path) {
         let no_auto_update: u32 = au_key.get_value("NoAutoUpdate").unwrap_or(0);
-        // Only check NoAutoUpdate - simple and consistent
         no_auto_update == 1
     } else {
         false
