@@ -1,6 +1,5 @@
 mod app;
 mod privileges;
-mod services;
 mod ui;
 mod update;
 
