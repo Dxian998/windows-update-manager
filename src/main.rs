@@ -1,5 +1,8 @@
 mod app;
 mod privileges;
+mod scheduler;
+mod security;
+mod services;
 mod ui;
 mod update;
 

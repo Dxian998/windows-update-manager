@@ -32,35 +32,32 @@ pub fn render_status_block() -> Paragraph<'static> {
     let (is_blocked, status_details) = super::update::get_update_status();
     let theme_color = if is_blocked { Color::Red } else { Color::Green };
 
-    let status_text = if is_blocked {
-        Span::styled(
-            "UPDATES ARE BLOCKED!",
-            Style::default()
-                .fg(theme_color)
-                .add_modifier(Modifier::BOLD),
-        )
+    let header_text = if is_blocked {
+        "UPDATES ARE BLOCKED!"
     } else {
-        Span::styled(
-            "UPDATES ARE ENABLED!",
-            Style::default()
-                .fg(theme_color)
-                .add_modifier(Modifier::BOLD),
-        )
+        "UPDATES ARE ENABLED!"
     };
 
-    let status_lines = vec![
-        Spans::from(status_text),
+    let mut lines: Vec<Spans> = vec![
+        Spans::from(Span::styled(
+            header_text,
+            Style::default()
+                .fg(theme_color)
+                .add_modifier(Modifier::BOLD),
+        )),
         Spans::from(""),
-        Spans::from(vec![
-            Span::raw("Registry Status:   "),
-            Span::styled(
-                status_details[0].1.clone(),
-                Style::default().fg(theme_color),
-            ),
-        ]),
     ];
 
-    Paragraph::new(status_lines)
+    for (label, status) in &status_details {
+        let row_color = status_color(is_blocked, status);
+        let padded_label = format!("{:<26}", label);
+        lines.push(Spans::from(vec![
+            Span::raw(padded_label),
+            Span::styled(status.clone(), Style::default().fg(row_color)),
+        ]));
+    }
+
+    Paragraph::new(lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -69,6 +66,28 @@ pub fn render_status_block() -> Paragraph<'static> {
         )
         .wrap(Wrap { trim: true })
         .alignment(Alignment::Left)
+}
+
+fn status_color(overall_blocked: bool, status: &str) -> Color {
+    let is_blocked_value = matches!(
+        status,
+        s if s.starts_with("Disabled")
+            || s == "Locked"
+            || s == "Active"
+            || s == "Blocked"
+    );
+
+    if overall_blocked {
+        if is_blocked_value {
+            Color::Red
+        } else {
+            Color::Yellow
+        }
+    } else if is_blocked_value {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
 }
 
 pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
@@ -85,8 +104,8 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         .margin(1)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(8),
-            Constraint::Min(9),
+            Constraint::Length(12),
+            Constraint::Min(6),
             Constraint::Length(2),
         ])
         .split(size);
@@ -100,11 +119,9 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         .alignment(Alignment::Center);
     frame.render_widget(title, chunks[0]);
 
-    // Status block
     let status_paragraph = render_status_block();
     frame.render_widget(status_paragraph, chunks[1]);
 
-    // Menu items
     let menu_items = if app.update_blocked {
         vec!["Enable Windows Updates", "Check the source code"]
     } else {
@@ -150,7 +167,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
 
     let busy = *app.busy.lock().unwrap();
     if busy {
-        let overlay_area = centered_rect(30, 7, size);
+        let overlay_area = centered_rect(40, 7, size);
         let block = Block::default()
             .title(Span::styled("Working...", Style::default().fg(theme_color)))
             .borders(Borders::ALL)
@@ -173,7 +190,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
 pub fn handle_key_event(key: KeyEvent, app: &mut super::app::App) -> bool {
     let busy = *app.busy.lock().unwrap();
     if busy {
-        return false;
+        return true;
     }
 
     match key.code {

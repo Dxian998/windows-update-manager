@@ -15,6 +15,7 @@ pub struct App {
     pub menu_state: ListState,
     pub update_blocked: bool,
     pub busy: Arc<Mutex<bool>>,
+    pub verified_status: Arc<Mutex<Option<bool>>>,
     last_key_press_time: Instant,
 }
 
@@ -27,6 +28,7 @@ impl App {
             menu_state,
             update_blocked: update::check_update_status(),
             busy: Arc::new(Mutex::new(false)),
+            verified_status: Arc::new(Mutex::new(None)),
             last_key_press_time: Instant::now(),
         }
     }
@@ -36,6 +38,10 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     ) -> io::Result<()> {
         loop {
+            if let Some(verified) = self.verified_status.lock().unwrap().take() {
+                self.update_blocked = verified;
+            }
+
             terminal.draw(|f| ui::render(f, self))?;
 
             if crossterm::event::poll(Duration::from_millis(50))? {
@@ -56,14 +62,16 @@ impl App {
 
     pub fn toggle_updates(&mut self) {
         let busy = Arc::clone(&self.busy);
+        let verified_status = Arc::clone(&self.verified_status);
         let should_block = !self.update_blocked;
 
         {
-            let mut busy_lock = busy.lock().unwrap();
-            *busy_lock = true;
+            let mut lock = busy.lock().unwrap();
+            *lock = true;
         }
 
-        let _self_update_blocked = self.update_blocked;
+        self.update_blocked = should_block;
+
         thread::spawn(move || {
             if should_block {
                 update::block_updates();
@@ -71,20 +79,20 @@ impl App {
                 update::enable_updates();
             }
 
-            let _new_status = update::check_update_status();
-
+            let actual = update::check_update_status();
             {
-                let mut busy_lock = busy.lock().unwrap();
-                *busy_lock = false;
+                let mut vs = verified_status.lock().unwrap();
+                *vs = Some(actual);
+            }
+            {
+                let mut lock = busy.lock().unwrap();
+                *lock = false;
             }
         });
-
-        self.update_blocked = should_block;
     }
 
-    // This function links to the official GitHub repository and should not be modified directly.
-    // It aligns with the MIT License, which requires attribution. To propose changes, please open up a pull request.
+    // 69
     pub fn open_github(&self) {
-        let _ = open::that("https://github.com/0xSovereign/windows-update-manager");
+        let _ = open::that("https://github.com/Dxian998/windows-update-manager");
     }
 }
