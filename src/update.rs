@@ -15,7 +15,7 @@ const BLOCK_SERVICES: &[(&str, bool)] = &[
     ("BITS", false),
 ];
 
-const LOCK_SERVICES: &[&str] = &["wuauserv", "WaaSMedicSvc", "UsoSvc"];
+const LOCK_SERVICES: &[&str] = &["wuauserv", "WaaSMedicSvc", "UsoSvc", "dosvc"];
 
 const RESTORE_START: &[(&str, windows::Win32::System::Services::SERVICE_START_TYPE)] = &[
     ("wuauserv", SERVICE_DEMAND_START),
@@ -41,7 +41,7 @@ const IFEO_TARGETS: &[&str] = &[
 const IFEO_BASE: &str =
     r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options";
 
-pub fn block_updates() {
+pub fn block_updates(protect_service_settings: bool) {
     security::enable_privileges();
 
     for (name, _should_disable) in BLOCK_SERVICES {
@@ -58,14 +58,27 @@ pub fn block_updates() {
         }
     }
 
-    for name in LOCK_SERVICES {
-        security::lock_service_registry_key(name);
+    if protect_service_settings {
+        for name in LOCK_SERVICES {
+            security::lock_service_registry_key(name);
+        }
     }
 
     apply_au_policy(true);
     apply_ifeo_blocks(true);
     scheduler::disable_update_tasks();
     clean_software_distribution();
+}
+
+pub fn set_protect_service_settings(protect: bool) {
+    security::enable_privileges();
+    for name in LOCK_SERVICES {
+        if protect {
+            security::lock_service_registry_key(name);
+        } else {
+            security::unlock_service_registry_key(name);
+        }
+    }
 }
 
 pub fn enable_updates() {
@@ -87,7 +100,23 @@ pub fn enable_updates() {
 pub fn check_update_status() -> bool {
     let locked = security::is_registry_key_locked("wuauserv");
     let start = services::get_service_start_value("wuauserv");
-    locked && start == 4
+    let uso_start = services::get_service_start_value("UsoSvc");
+    start == 4 && (locked || uso_start == 4)
+}
+
+pub fn toggle_bits(update_blocked: bool) {
+    let current = services::get_service_start_value("BITS");
+    if current == 4 {
+        let target = if update_blocked {
+            SERVICE_DEMAND_START
+        } else {
+            SERVICE_AUTO_START
+        };
+        services::set_service_start("BITS", target);
+    } else {
+        services::stop_service("BITS");
+        services::set_service_start("BITS", SERVICE_DISABLED);
+    }
 }
 
 pub fn get_update_status() -> (bool, Vec<(String, String)>) {
@@ -95,11 +124,13 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let wua_running = services::is_service_running("wuauserv");
     let uso_start = services::get_service_start_value("UsoSvc");
     let medic_start = services::get_service_start_value("WaaSMedicSvc");
+    let bits_start = services::get_service_start_value("BITS");
+    let bits_running = services::is_service_running("BITS");
     let registry_locked = security::is_registry_key_locked("wuauserv");
     let ifeo_active = is_ifeo_active();
     let tasks_blocked = scheduler::are_tasks_blocked();
 
-    let is_blocked = registry_locked && wua_start == 4;
+    let is_blocked = wua_start == 4 && (registry_locked || uso_start == 4);
 
     let fmt_service = |start: u32, running: bool| -> String {
         match start {
@@ -111,7 +142,13 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
                     "Manual (Stopped)".to_string()
                 }
             }
-            2 => "Auto".to_string(),
+            2 => {
+                if running {
+                    "Auto (Running)".to_string()
+                } else {
+                    "Auto".to_string()
+                }
+            }
             _ => "Unknown".to_string(),
         }
     };
@@ -128,6 +165,10 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
         (
             "UsoSvc (Orchestrator)".to_string(),
             fmt_service(uso_start, services::is_service_running("UsoSvc")),
+        ),
+        (
+            "BITS (Transfer)".to_string(),
+            fmt_service(bits_start, bits_running),
         ),
         (
             "Registry ACL Lock".to_string(),

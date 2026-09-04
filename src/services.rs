@@ -50,6 +50,12 @@ pub fn start_service(name: &str) {
 }
 
 pub fn set_service_start(name: &str, start_type: SERVICE_START_TYPE) {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let path = format!("SYSTEM\\CurrentControlSet\\Services\\{}", name);
+    if let Ok(key) = hklm.open_subkey_with_flags(&path, KEY_SET_VALUE) {
+        let _ = key.set_value("Start", &(start_type.0 as u32));
+    }
+
     unsafe {
         let Some(scm) = open_scm() else { return };
         let Some(svc) = open_service(scm, name) else {

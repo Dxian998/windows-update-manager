@@ -104,7 +104,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         .margin(1)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(12),
+            Constraint::Length(13),
             Constraint::Min(6),
             Constraint::Length(2),
         ])
@@ -122,10 +122,41 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
     let status_paragraph = render_status_block();
     frame.render_widget(status_paragraph, chunks[1]);
 
-    let menu_items = if app.update_blocked {
-        vec!["Enable Windows Updates", "Check the source code"]
+    let locked_now = super::security::is_registry_key_locked("wuauserv");
+    let protect_checkbox = if app.protect_service_settings { "[X]" } else { "[ ]" };
+    let protect_label = if app.update_blocked {
+        if locked_now {
+            format!("{} Protect Service Settings (Locked)", protect_checkbox)
+        } else {
+            format!("{} Protect Service Settings (Unlocked)", protect_checkbox)
+        }
     } else {
-        vec!["Disable Windows Updates", "Check the source code"]
+        format!("{} Protect Service Settings", protect_checkbox)
+    };
+
+    let bits_start = super::services::get_service_start_value("BITS");
+    let bits_status_str = match bits_start {
+        4 => "Disabled",
+        3 => "Manual",
+        2 => "Auto",
+        _ => "Unknown",
+    };
+    let bits_menu_item = format!("Toggle BITS Service (Current: {})", bits_status_str);
+
+    let menu_items = if app.update_blocked {
+        vec![
+            "Enable Windows Updates".to_string(),
+            protect_label,
+            bits_menu_item,
+            "Check the source code".to_string(),
+        ]
+    } else {
+        vec![
+            "Disable Windows Updates".to_string(),
+            protect_label,
+            bits_menu_item,
+            "Check the source code".to_string(),
+        ]
     };
 
     let items: Vec<ListItem> = menu_items
@@ -203,7 +234,7 @@ pub fn handle_key_event(key: KeyEvent, app: &mut super::app::App) -> bool {
             true
         }
         KeyCode::Down => {
-            let item_count = 2;
+            let item_count = 4;
             let selected = app.menu_state.selected().unwrap_or(0);
             let new_index = (selected + 1) % item_count;
             if new_index != selected {
@@ -215,7 +246,9 @@ pub fn handle_key_event(key: KeyEvent, app: &mut super::app::App) -> bool {
             if let Some(selected) = app.menu_state.selected() {
                 match selected {
                     0 => app.toggle_updates(),
-                    1 => app.open_github(),
+                    1 => app.toggle_protect_settings(),
+                    2 => app.toggle_bits(),
+                    3 => app.open_github(),
                     _ => (),
                 }
             }

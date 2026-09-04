@@ -2,7 +2,7 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
     COINIT_APARTMENTTHREADED,
 };
-use windows::Win32::System::TaskScheduler::{ITaskService, CLSID_CTaskScheduler};
+use windows::Win32::System::TaskScheduler::{ITaskService, TaskScheduler};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::Foundation::VARIANT_BOOL;
 use windows::core::BSTR;
@@ -82,7 +82,7 @@ where
 
         let result = (|| -> windows::core::Result<R> {
             let svc: ITaskService =
-                CoCreateInstance(&CLSID_CTaskScheduler, None, CLSCTX_INPROC_SERVER)?;
+                CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?;
 
             let empty = VARIANT::default();
             svc.Connect(&empty, &empty, &empty, &empty)?;

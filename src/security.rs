@@ -1,5 +1,5 @@
 use std::ptr;
-use winreg::{enums::*, RegKey};
+use winreg::enums::*;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LUID};
 use windows::Win32::Security::{
@@ -12,17 +12,19 @@ use windows::Win32::Security::{
     ACL, ACE_FLAGS,
 };
 use windows::Win32::Security::Authorization::{
-    ConvertStringSidToSidW, SetEntriesInAclW, SetNamedSecurityInfoW, ACCESS_MODE,
+    ConvertStringSidToSidW, SetEntriesInAclW, SetSecurityInfo, ACCESS_MODE,
     EXPLICIT_ACCESS_W, MULTIPLE_TRUSTEE_OPERATION, SE_REGISTRY_KEY, TRUSTEE_FORM,
     TRUSTEE_TYPE, TRUSTEE_W, SET_ACCESS,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::Win32::System::Registry::{
+    RegCloseKey, RegOpenKeyExW, HKEY, REG_OPTION_BACKUP_RESTORE, REG_SAM_FLAGS,
+};
 use windows::core::PCWSTR;
 
-const TRUSTED_INSTALLER_SID: &str =
-    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+const TRUSTED_INSTALLER_SID: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
 
-const KEY_READ_RIGHTS: u32 = 0x2001F;
+const KEY_READ_RIGHTS: u32 = 0x20019;
 const KEY_ALL_RIGHTS: u32 = 0xF003F;
 
 const REQUIRED_PRIVILEGES: &[&str] = &[
@@ -84,7 +86,7 @@ pub fn enable_privileges() -> bool {
     }
 }
 
-unsafe fn build_well_known_sid(
+pub unsafe fn build_well_known_sid(
     kind: windows::Win32::Security::WELL_KNOWN_SID_TYPE,
 ) -> Option<Vec<u8>> {
     let mut size: u32 = 0;
@@ -101,7 +103,7 @@ unsafe fn build_well_known_sid(
     }
 }
 
-unsafe fn explicit_access(sid_buf: &[u8], access: u32, mode: ACCESS_MODE) -> EXPLICIT_ACCESS_W {
+pub unsafe fn explicit_access(sid_buf: &[u8], access: u32, mode: ACCESS_MODE) -> EXPLICIT_ACCESS_W {
     EXPLICIT_ACCESS_W {
         grfAccessPermissions: access,
         grfAccessMode: mode,
@@ -116,14 +118,26 @@ unsafe fn explicit_access(sid_buf: &[u8], access: u32, mode: ACCESS_MODE) -> EXP
     }
 }
 
-fn registry_named_path(service: &str) -> Vec<u16> {
-    format!(
-        "MACHINE\\SYSTEM\\CurrentControlSet\\Services\\{}",
-        service
-    )
-    .encode_utf16()
-    .chain(std::iter::once(0))
-    .collect()
+unsafe fn open_service_key_for_security(service: &str, sam: u32) -> Option<HKEY> {
+    let subkey: Vec<u16> = format!("SYSTEM\\CurrentControlSet\\Services\\{}", service)
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut hkey = HKEY::default();
+    let status = unsafe {
+        RegOpenKeyExW(
+            windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+            PCWSTR(subkey.as_ptr()),
+            Some(REG_OPTION_BACKUP_RESTORE.0),
+            REG_SAM_FLAGS(sam),
+            &mut hkey,
+        )
+    };
+    if status.is_ok() && !hkey.0.is_null() {
+        Some(hkey)
+    } else {
+        None
+    }
 }
 
 pub fn lock_service_registry_key(service: &str) {
@@ -142,32 +156,36 @@ pub fn lock_service_registry_key(service: &str) {
         let rc = SetEntriesInAclW(Some(&entries), None, &mut new_acl);
         if rc.0 != 0 { return; }
 
-        let path = registry_named_path(service);
-        let pcwstr = PCWSTR(path.as_ptr());
-
         let adm_psid = PSID(adm_sid.as_ptr() as _);
-        let _ = SetNamedSecurityInfoW(
-            pcwstr,
-            SE_REGISTRY_KEY,
-            OWNER_SECURITY_INFORMATION,
-            Some(adm_psid),
-            None,
-            None,
-            None,
-        );
+
+        if let Some(hkey) = open_service_key_for_security(service, 0x00080000) {
+            let _ = SetSecurityInfo(
+                HANDLE(hkey.0 as _),
+                SE_REGISTRY_KEY,
+                OWNER_SECURITY_INFORMATION,
+                Some(adm_psid),
+                None,
+                None,
+                None,
+            );
+            let _ = RegCloseKey(hkey);
+        }
 
         let dacl_flags = OBJECT_SECURITY_INFORMATION(
             DACL_SECURITY_INFORMATION.0 | PROTECTED_DACL_SECURITY_INFORMATION.0,
         );
-        let _ = SetNamedSecurityInfoW(
-            pcwstr,
-            SE_REGISTRY_KEY,
-            dacl_flags,
-            None,
-            None,
-            Some(new_acl as *const _),
-            None,
-        );
+        if let Some(hkey) = open_service_key_for_security(service, 0x00040000) {
+            let _ = SetSecurityInfo(
+                HANDLE(hkey.0 as _),
+                SE_REGISTRY_KEY,
+                dacl_flags,
+                None,
+                None,
+                Some(new_acl as *const _),
+                None,
+            );
+            let _ = RegCloseKey(hkey);
+        }
 
         let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(new_acl as *mut _)));
     }
@@ -189,57 +207,46 @@ pub fn unlock_service_registry_key(service: &str) {
         let rc = SetEntriesInAclW(Some(&entries), None, &mut new_acl);
         if rc.0 != 0 { return; }
 
-        let path = registry_named_path(service);
-        let pcwstr = PCWSTR(path.as_ptr());
-
-        let adm_psid = PSID(adm_sid.as_ptr() as _);
-        let _ = SetNamedSecurityInfoW(
-            pcwstr,
-            SE_REGISTRY_KEY,
-            OWNER_SECURITY_INFORMATION,
-            Some(adm_psid),
-            None,
-            None,
-            None,
-        );
-
         let dacl_flags = OBJECT_SECURITY_INFORMATION(
             DACL_SECURITY_INFORMATION.0 | UNPROTECTED_DACL_SECURITY_INFORMATION.0,
         );
-        let _ = SetNamedSecurityInfoW(
-            pcwstr,
-            SE_REGISTRY_KEY,
-            dacl_flags,
-            None,
-            None,
-            Some(new_acl as *const _),
-            None,
-        );
-
-        let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(new_acl as *mut _)));
-
-        let ti_wide: Vec<u16> = TRUSTED_INSTALLER_SID
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let mut ti_psid = PSID(ptr::null_mut());
-        if ConvertStringSidToSidW(PCWSTR(ti_wide.as_ptr()), &mut ti_psid).is_ok() {
-            let _ = SetNamedSecurityInfoW(
-                pcwstr,
+        if let Some(hkey) = open_service_key_for_security(service, 0x00040000) {
+            let _ = SetSecurityInfo(
+                HANDLE(hkey.0 as _),
                 SE_REGISTRY_KEY,
-                OWNER_SECURITY_INFORMATION,
-                Some(ti_psid),
+                dacl_flags,
                 None,
                 None,
+                Some(new_acl as *const _),
                 None,
             );
+            let _ = RegCloseKey(hkey);
+        }
+
+        let ti_wide: Vec<u16> = TRUSTED_INSTALLER_SID.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut ti_psid = PSID(ptr::null_mut());
+        if ConvertStringSidToSidW(PCWSTR(ti_wide.as_ptr()), &mut ti_psid).is_ok() {
+            if let Some(hkey) = open_service_key_for_security(service, 0x00080000) {
+                let _ = SetSecurityInfo(
+                    HANDLE(hkey.0 as _),
+                    SE_REGISTRY_KEY,
+                    OWNER_SECURITY_INFORMATION,
+                    Some(ti_psid),
+                    None,
+                    None,
+                    None,
+                );
+                let _ = RegCloseKey(hkey);
+            }
             let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(ti_psid.0)));
         }
+
+        let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(new_acl as *mut _)));
     }
 }
 
 pub fn is_registry_key_locked(service: &str) -> bool {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
     let path = format!("SYSTEM\\CurrentControlSet\\Services\\{}", service);
     match hklm.open_subkey_with_flags(&path, KEY_WRITE) {
         Ok(_key) => false,
