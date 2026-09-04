@@ -8,14 +8,17 @@ use windows::Win32::Foundation::VARIANT_BOOL;
 use windows::core::BSTR;
 
 const UPDATE_TASKS: &[(&str, &str)] = &[
-    (r"\Microsoft\Windows\WaaSMedic", "PerformRemediation"),
+    (r"\Microsoft\Windows\WindowsUpdate", "Scheduled Start"),
+    (r"\Microsoft\Windows\WaaSMedic", "MaintenanceWork"),
+];
+
+const OPTIONAL_TASKS: &[(&str, &str)] = &[
+    (r"\Microsoft\Windows\WindowsUpdate", "sih"),
     (r"\Microsoft\Windows\UpdateOrchestrator", "Schedule Scan"),
     (r"\Microsoft\Windows\UpdateOrchestrator", "Scheduled Start"),
     (r"\Microsoft\Windows\UpdateOrchestrator", "Schedule Maintenance Work"),
     (r"\Microsoft\Windows\UpdateOrchestrator", "Schedule Wake To Work"),
     (r"\Microsoft\Windows\UpdateOrchestrator", "USO_UxBroker"),
-    (r"\Microsoft\Windows\WindowsUpdate", "Scheduled Start"),
-    (r"\Microsoft\Windows\WindowsUpdate", "sih"),
 ];
 
 pub fn disable_update_tasks() {
@@ -28,21 +31,26 @@ pub fn enable_update_tasks() {
 
 pub fn are_tasks_blocked() -> bool {
     with_task_service(|svc| {
-        let folder = match unsafe {
-            svc.GetFolder(&BSTR::from(r"\Microsoft\Windows\WaaSMedic"))
-        } {
-            Ok(f) => f,
-            Err(_) => return false,
-        };
-        let task = match unsafe { folder.GetTask(&BSTR::from("PerformRemediation")) } {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-        let enabled = match unsafe { task.Enabled() } {
-            Ok(v) => v,
-            Err(_) => return false,
-        };
-        enabled == VARIANT_BOOL(0)
+        let mut found_any = false;
+        for (folder_path, task_name) in UPDATE_TASKS {
+            let folder = match unsafe { svc.GetFolder(&BSTR::from(*folder_path)) } {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let task = match unsafe { folder.GetTask(&BSTR::from(*task_name)) } {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            found_any = true;
+            let enabled = match unsafe { task.Enabled() } {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if enabled.0 != 0 {
+                return false;
+            }
+        }
+        found_any
     })
     .unwrap_or(false)
 }
@@ -55,7 +63,7 @@ fn set_tasks_enabled(enable: bool) {
     };
 
     let _ = with_task_service(|svc| {
-        for (folder_path, task_name) in UPDATE_TASKS {
+        for (folder_path, task_name) in UPDATE_TASKS.iter().chain(OPTIONAL_TASKS.iter()) {
             let folder = match unsafe { svc.GetFolder(&BSTR::from(*folder_path)) } {
                 Ok(f) => f,
                 Err(_) => continue,
@@ -76,21 +84,35 @@ where
 {
     unsafe {
         let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        if hr.0 < 0 {
+        if hr.0 < 0 && hr.0 != -2147417850 {
             return None;
         }
 
-        let result = (|| -> windows::core::Result<R> {
-            let svc: ITaskService =
-                CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?;
+        let svc: windows::core::Result<ITaskService> =
+            CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER);
+        let svc = match svc {
+            Ok(s) => s,
+            Err(_) => {
+                if hr.0 >= 0 {
+                    CoUninitialize();
+                }
+                return None;
+            }
+        };
 
-            let empty = VARIANT::default();
-            svc.Connect(&empty, &empty, &empty, &empty)?;
+        let empty = VARIANT::default();
+        if svc.Connect(&empty, &empty, &empty, &empty).is_err() {
+            if hr.0 >= 0 {
+                CoUninitialize();
+            }
+            return None;
+        }
 
-            Ok(f(&svc))
-        })();
-
-        CoUninitialize();
-        result.ok()
+        let ret = f(&svc);
+        drop(svc);
+        if hr.0 >= 0 {
+            CoUninitialize();
+        }
+        Some(ret)
     }
 }

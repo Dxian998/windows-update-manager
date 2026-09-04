@@ -28,8 +28,7 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(vertical_chunks[1])[1]
 }
 
-pub fn render_status_block() -> Paragraph<'static> {
-    let (is_blocked, status_details) = super::update::get_update_status();
+pub fn render_status_block(status_details: &[(String, String)], is_blocked: bool) -> Paragraph<'static> {
     let theme_color = if is_blocked { Color::Red } else { Color::Green };
 
     let header_text = if is_blocked {
@@ -48,7 +47,7 @@ pub fn render_status_block() -> Paragraph<'static> {
         Spans::from(""),
     ];
 
-    for (label, status) in &status_details {
+    for (label, status) in status_details {
         let row_color = status_color(is_blocked, status);
         let padded_label = format!("{:<26}", label);
         lines.push(Spans::from(vec![
@@ -119,7 +118,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         .alignment(Alignment::Center);
     frame.render_widget(title, chunks[0]);
 
-    let status_paragraph = render_status_block();
+    let status_paragraph = render_status_block(&app.status_details, app.update_blocked);
     frame.render_widget(status_paragraph, chunks[1]);
 
     let locked_now = super::security::is_registry_key_locked("wuauserv");
