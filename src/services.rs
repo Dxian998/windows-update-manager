@@ -35,16 +35,14 @@ pub fn stop_service(name: &str) -> bool {
     }
 }
 
-#[allow(dead_code)]
 pub fn start_service(name: &str) {
     unsafe {
         let Some(scm) = open_scm() else { return };
-        let Some(svc) = open_service(scm, name) else {
-            let _ = CloseServiceHandle(scm);
-            return;
-        };
-        let _ = StartServiceW(svc, None);
-        let _ = CloseServiceHandle(svc);
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        if let Ok(svc) = OpenServiceW(scm, PCWSTR(wide.as_ptr()), SERVICE_ALL_ACCESS) {
+            let _ = StartServiceW(svc, None);
+            let _ = CloseServiceHandle(svc);
+        }
         let _ = CloseServiceHandle(scm);
     }
 }
@@ -58,24 +56,48 @@ pub fn set_service_start(name: &str, start_type: SERVICE_START_TYPE) {
 
     unsafe {
         let Some(scm) = open_scm() else { return };
-        let Some(svc) = open_service(scm, name) else {
-            let _ = CloseServiceHandle(scm);
-            return;
-        };
-        let _ = ChangeServiceConfigW(
-            svc,
-            ENUM_SERVICE_TYPE(SERVICE_NO_CHANGE),
-            start_type,
-            SERVICE_ERROR(SERVICE_NO_CHANGE),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            None,
-            PCWSTR::null(),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            PCWSTR::null(),
-        );
-        let _ = CloseServiceHandle(svc);
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        if let Ok(svc) = OpenServiceW(scm, PCWSTR(wide.as_ptr()), SERVICE_ALL_ACCESS) {
+            let _ = ChangeServiceConfigW(
+                svc,
+                ENUM_SERVICE_TYPE(SERVICE_NO_CHANGE),
+                start_type,
+                SERVICE_ERROR(SERVICE_NO_CHANGE),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                None,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+            );
+            let _ = CloseServiceHandle(svc);
+        }
+        let _ = CloseServiceHandle(scm);
+    }
+}
+
+pub fn fix_service_img_path(name: &str, new_image_path: &str) {
+    let wide_name: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide_path: Vec<u16> = new_image_path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let Some(scm) = open_scm() else { return };
+        if let Ok(svc) = OpenServiceW(scm, PCWSTR(wide_name.as_ptr()), SERVICE_ALL_ACCESS) {
+            let _ = ChangeServiceConfigW(
+                svc,
+                ENUM_SERVICE_TYPE(SERVICE_NO_CHANGE),
+                SERVICE_START_TYPE(SERVICE_NO_CHANGE),
+                SERVICE_ERROR(SERVICE_NO_CHANGE),
+                PCWSTR(wide_path.as_ptr()),
+                PCWSTR::null(),
+                None,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                PCWSTR::null(),
+            );
+            let _ = CloseServiceHandle(svc);
+        }
         let _ = CloseServiceHandle(scm);
     }
 }

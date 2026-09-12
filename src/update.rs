@@ -7,20 +7,20 @@ use windows::Win32::System::Services::{
     SERVICE_AUTO_START, SERVICE_DEMAND_START, SERVICE_DISABLED,
 };
 
-const BLOCK_SERVICES: &[(&str, bool)] = &[
-    ("wuauserv", true),
-    ("WaaSMedicSvc", true),
-    ("UsoSvc", true),
-    ("dosvc", true),
-    ("BITS", false),
+const BLOCK_SERVICES: &[(&str, windows::Win32::System::Services::SERVICE_START_TYPE)] = &[
+    ("wuauserv", SERVICE_DISABLED),
+    ("WaaSMedicSvc", SERVICE_DISABLED),
+    ("UsoSvc", SERVICE_DISABLED),
+    ("dosvc", SERVICE_AUTO_START),
+    ("BITS", SERVICE_DEMAND_START),
 ];
 
-const LOCK_SERVICES: &[&str] = &["wuauserv", "WaaSMedicSvc", "UsoSvc", "dosvc"];
+const LOCK_SERVICES: &[&str] = &["wuauserv", "WaaSMedicSvc"];
 
 const RESTORE_START: &[(&str, windows::Win32::System::Services::SERVICE_START_TYPE)] = &[
-    ("wuauserv", SERVICE_DEMAND_START),
+    ("wuauserv", SERVICE_AUTO_START),
     ("WaaSMedicSvc", SERVICE_DEMAND_START),
-    ("UsoSvc", SERVICE_DEMAND_START),
+    ("UsoSvc", SERVICE_AUTO_START),
     ("dosvc", SERVICE_AUTO_START),
     ("BITS", SERVICE_AUTO_START),
 ];
@@ -44,18 +44,14 @@ const IFEO_BASE: &str =
 pub fn block_updates(protect_service_settings: bool) {
     security::enable_privileges();
 
-    for (name, _should_disable) in BLOCK_SERVICES {
-        services::stop_service(name);
+    for (name, _) in BLOCK_SERVICES {
+        if *name != "dosvc" {
+            services::stop_service(name);
+        }
     }
 
-    services::set_service_start("BITS", SERVICE_DEMAND_START);
-
-    for (name, should_disable) in BLOCK_SERVICES {
-        if *should_disable {
-            services::set_service_start(name, SERVICE_DISABLED);
-        } else {
-            services::set_service_start(name, SERVICE_DEMAND_START);
-        }
+    for (name, start_type) in BLOCK_SERVICES {
+        services::set_service_start(name, *start_type);
     }
 
     if protect_service_settings {
@@ -84,24 +80,60 @@ pub fn set_protect_service_settings(protect: bool) {
 pub fn enable_updates() {
     security::enable_privileges();
 
+    apply_ifeo_blocks(false);
+    apply_au_policy(false);
+    scheduler::enable_update_tasks();
+
     for name in LOCK_SERVICES {
         security::unlock_service_registry_key(name);
     }
 
+    let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
     for (name, start_type) in RESTORE_START {
+        let path = format!("SYSTEM\\CurrentControlSet\\Services\\{}", name);
+        if let Ok(key) = hklm.open_subkey_with_flags(&path, winreg::enums::KEY_SET_VALUE | winreg::enums::KEY_QUERY_VALUE) {
+            let _ = key.delete_value("WubLock");
+
+            if let Ok(image_path) = key.get_value::<String, _>("ImagePath") {
+                if image_path.contains("wusvcs") {
+                    let correct_group = if *name == "WaaSMedicSvc" { "WaaSMedicSvc" } else { "netsvcs" };
+                    let fixed = image_path.replace("wusvcs", correct_group);
+                    let utf16: Vec<u8> = fixed.encode_utf16()
+                        .chain(std::iter::once(0))
+                        .flat_map(|c| c.to_ne_bytes())
+                        .collect();
+                    let raw = winreg::RegValue {
+                        vtype: winreg::enums::REG_EXPAND_SZ,
+                        bytes: utf16,
+                    };
+                    let _ = key.set_raw_value("ImagePath", &raw);
+                    services::fix_service_img_path(name, &fixed);
+                }
+            }
+
+            let _ = key.set_value("Start", &(start_type.0 as u32));
+        }
         services::set_service_start(name, *start_type);
     }
 
-    apply_au_policy(false);
-    apply_ifeo_blocks(false);
-    scheduler::enable_update_tasks();
+    services::start_service("UsoSvc");
+    services::start_service("BITS");
+    services::start_service("dosvc");
+
+    for _ in 0..5 {
+        if services::is_service_running("wuauserv") {
+            break;
+        }
+        services::start_service("wuauserv");
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+    }
 }
 
 pub fn check_update_status() -> bool {
     let locked = security::is_registry_key_locked("wuauserv");
     let start = services::get_service_start_value("wuauserv");
-    let uso_start = services::get_service_start_value("UsoSvc");
-    start == 4 && (locked || uso_start == 4)
+    let medic_start = services::get_service_start_value("WaaSMedicSvc");
+    start == 4 && (locked || medic_start == 4)
 }
 
 pub fn toggle_bits(update_blocked: bool) {
@@ -122,6 +154,8 @@ pub fn toggle_bits(update_blocked: bool) {
 pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let wua_start = services::get_service_start_value("wuauserv");
     let wua_running = services::is_service_running("wuauserv");
+    let dosvc_start = services::get_service_start_value("dosvc");
+    let dosvc_running = services::is_service_running("dosvc");
     let uso_start = services::get_service_start_value("UsoSvc");
     let medic_start = services::get_service_start_value("WaaSMedicSvc");
     let bits_start = services::get_service_start_value("BITS");
@@ -129,8 +163,7 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let registry_locked = security::is_registry_key_locked("wuauserv");
     let ifeo_active = is_ifeo_active();
     let tasks_blocked = scheduler::are_tasks_blocked();
-
-    let is_blocked = wua_start == 4 && (registry_locked || uso_start == 4);
+    let is_blocked = wua_start == 4 && (registry_locked || medic_start == 4);
 
     let fmt_service = |start: u32, running: bool| -> String {
         match start {
@@ -155,19 +188,23 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
 
     let details = vec![
         (
-            "wuauserv (Update)".to_string(),
+            "wuauserv".to_string(),
             fmt_service(wua_start, wua_running),
         ),
         (
-            "WaaSMedicSvc (Watchdog)".to_string(),
+            "dosvc".to_string(),
+            fmt_service(dosvc_start, dosvc_running),
+        ),
+        (
+            "WaaSMedicSvc".to_string(),
             fmt_service(medic_start, false),
         ),
         (
-            "UsoSvc (Orchestrator)".to_string(),
+            "UsoSvc".to_string(),
             fmt_service(uso_start, services::is_service_running("UsoSvc")),
         ),
         (
-            "BITS (Transfer)".to_string(),
+            "BITS".to_string(),
             fmt_service(bits_start, bits_running),
         ),
         (
@@ -218,15 +255,23 @@ fn apply_au_policy(block: bool) {
             wu_key.set_value("WUStatusServer", &"").ok();
         }
     } else {
-        let _ = hklm.delete_subkey_all(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU");
-
+        if let Ok(au_key) = hklm.open_subkey_with_flags(
+            r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU",
+            KEY_SET_VALUE,
+        ) {
+            let _ = au_key.delete_value("NoAutoUpdate");
+            let _ = au_key.delete_value("AUOptions");
+            let _ = au_key.delete_value("UseWUServer");
+        }
         if let Ok(wu_key) = hklm.open_subkey_with_flags(
             r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate",
-            KEY_WRITE,
+            KEY_SET_VALUE,
         ) {
             let _ = wu_key.delete_value("WUServer");
             let _ = wu_key.delete_value("WUStatusServer");
+            let _ = wu_key.delete_value("DisableWindowsUpdateAccess");
         }
+        let _ = hklm.delete_subkey_all(r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate");
     }
 }
 
@@ -244,6 +289,23 @@ fn apply_ifeo_blocks(block: bool) {
                 let _ = key.delete_value("Debugger");
             }
             let _ = hklm.delete_subkey(&path);
+        }
+    }
+
+    if !block {
+        if let Ok(ifeo_root) = hklm.open_subkey(IFEO_BASE) {
+            let subkeys: Vec<String> = ifeo_root.enum_keys().filter_map(|k| k.ok()).collect();
+            for name in subkeys {
+                let path = format!("{}\\{}", IFEO_BASE, name);
+                if let Ok(key) = hklm.open_subkey_with_flags(&path, KEY_READ | KEY_SET_VALUE) {
+                    let debugger: Result<String, _> = key.get_value("Debugger");
+                    if let Ok(d) = debugger {
+                        if d == "/" || d.is_empty() {
+                            let _ = key.delete_value("Debugger");
+                        }
+                    }
+                }
+            }
         }
     }
 }
