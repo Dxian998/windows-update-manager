@@ -1,8 +1,19 @@
+[workspace]
+members = [".", "ui"]
+
 [package]
 name = "windows-update-manager"
 version = "0.2.3"
 edition = "2024"
 authors = ["Sovereign"]
+
+[lib]
+name = "wum"
+path = "src/lib.rs"
+
+[[bin]]
+name = "windows-update-manager"
+path = "src/main.rs"
 
 [dependencies]
 colored = "3.0.0"
@@ -13,13 +24,14 @@ windows = { version = "0.61.3", features = [
     "Win32_System_Console",
     "Win32_System_Threading",
     "Win32_Security",
-    "Win32_Security_Authorization",   # SetNamedSecurityInfoW, SetEntriesInAclW, SE_REGISTRY_KEY
-    "Win32_System_Registry",          # REG_OPTION_BACKUP_RESTORE, registry key flags
-    "Win32_System_Services",          # OpenSCManager, ChangeServiceConfigW, ControlService
-    "Win32_System_Com",               # CoInitializeEx, CoCreateInstance
-    "Win32_System_TaskScheduler",     # ITaskService, ITaskFolder, IRegisteredTask
-    "Win32_System_Variant",           # VARIANT (for ITaskService::Connect parameters)
-    "Win32_System_Ole",               # Enables VARIANT definition and ITaskService::Connect
+    "Win32_Security_Authorization",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_Com",
+    "Win32_System_TaskScheduler",
+    "Win32_System_Variant",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
 ] }
 winreg = "0.55.0"
 open = "5.3.2"
