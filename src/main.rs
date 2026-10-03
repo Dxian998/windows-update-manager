@@ -3,6 +3,7 @@ mod privileges;
 mod scheduler;
 mod security;
 mod services;
+mod store;
 mod ui;
 mod update;
 

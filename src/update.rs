@@ -62,7 +62,10 @@ pub fn block_updates(protect_service_settings: bool) {
 
     apply_au_policy(true);
     apply_ifeo_blocks(true);
-    scheduler::disable_update_tasks();
+    for _ in 0..3 {
+        scheduler::disable_update_tasks();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     clean_software_distribution();
 }
 
@@ -133,7 +136,9 @@ pub fn check_update_status() -> bool {
     let locked = security::is_registry_key_locked("wuauserv");
     let start = services::get_service_start_value("wuauserv");
     let medic_start = services::get_service_start_value("WaaSMedicSvc");
-    start == 4 && (locked || medic_start == 4)
+    let ifeo_active = is_ifeo_active();
+    let tasks_blocked = scheduler::are_tasks_blocked();
+    (start == 4 || ifeo_active || tasks_blocked) && (locked || medic_start == 4)
 }
 
 pub fn toggle_bits(update_blocked: bool) {
@@ -163,7 +168,8 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     let registry_locked = security::is_registry_key_locked("wuauserv");
     let ifeo_active = is_ifeo_active();
     let tasks_blocked = scheduler::are_tasks_blocked();
-    let is_blocked = wua_start == 4 && (registry_locked || medic_start == 4);
+    let store_allowed = crate::store::is_store_access_allowed();
+    let is_blocked = (wua_start == 4 || ifeo_active || tasks_blocked) && medic_start == 4;
 
     let fmt_service = |start: u32, running: bool| -> String {
         match start {
@@ -208,6 +214,14 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
             fmt_service(bits_start, bits_running),
         ),
         (
+            "Store Access".to_string(),
+            if store_allowed {
+                "Allowed".to_string()
+            } else {
+                "Blocked".to_string()
+            },
+        ),
+        (
             "Registry ACL Lock".to_string(),
             if registry_locked {
                 "Locked".to_string()
@@ -236,7 +250,7 @@ pub fn get_update_status() -> (bool, Vec<(String, String)>) {
     (is_blocked, details)
 }
 
-fn apply_au_policy(block: bool) {
+pub(crate) fn apply_au_policy(block: bool) {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
     if block {
@@ -278,34 +292,30 @@ fn apply_au_policy(block: bool) {
 fn apply_ifeo_blocks(block: bool) {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-    for exe in IFEO_TARGETS {
-        let path = format!("{}\\{}", IFEO_BASE, exe);
-        if block {
+    if block {
+        for exe in IFEO_TARGETS {
+            let path = format!("{IFEO_BASE}\\{exe}");
             if let Ok((key, _)) = hklm.create_subkey(&path) {
                 let _ = key.set_value("Debugger", &"/");
             }
-        } else {
-            if let Ok(key) = hklm.open_subkey_with_flags(&path, KEY_WRITE) {
-                let _ = key.delete_value("Debugger");
-            }
-            let _ = hklm.delete_subkey(&path);
         }
+        return;
     }
 
-    if !block {
-        if let Ok(ifeo_root) = hklm.open_subkey(IFEO_BASE) {
-            let subkeys: Vec<String> = ifeo_root.enum_keys().filter_map(|k| k.ok()).collect();
-            for name in subkeys {
-                let path = format!("{}\\{}", IFEO_BASE, name);
-                if let Ok(key) = hklm.open_subkey_with_flags(&path, KEY_READ | KEY_SET_VALUE) {
-                    let debugger: Result<String, _> = key.get_value("Debugger");
-                    if let Ok(d) = debugger {
-                        if d == "/" || d.is_empty() {
-                            let _ = key.delete_value("Debugger");
-                        }
-                    }
-                }
-            }
+    let Ok(ifeo_root) = hklm.open_subkey_with_flags(IFEO_BASE, KEY_ALL_ACCESS) else {
+        return;
+    };
+
+    for exe in IFEO_TARGETS {
+        let _ = ifeo_root.delete_subkey_all(exe);
+    }
+
+    for name in ifeo_root.enum_keys().filter_map(Result::ok) {
+        let Ok(key) = ifeo_root.open_subkey_with_flags(&name, KEY_READ | KEY_SET_VALUE) else {
+            continue;
+        };
+        if matches!(key.get_value::<String, _>("Debugger"), Ok(d) if d == "/" || d.is_empty()) {
+            let _ = key.delete_value("Debugger");
         }
     }
 }
@@ -320,7 +330,7 @@ fn is_ifeo_active() -> bool {
     false
 }
 
-fn clean_software_distribution() {
+pub fn clean_software_distribution() {
     let dl_path = PathBuf::from(r"C:\Windows\SoftwareDistribution\Download");
     if let Ok(entries) = fs::read_dir(&dl_path) {
         for entry in entries.flatten() {

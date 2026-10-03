@@ -123,6 +123,35 @@ impl App {
         self.refresh_status();
     }
 
+    pub fn toggle_store_access(&mut self) {
+        if !self.update_blocked || *self.busy.lock().unwrap() {
+            return;
+        }
+        let busy = Arc::clone(&self.busy);
+        let verified_status = Arc::clone(&self.verified_status);
+        let protect = self.protect_service_settings;
+        let currently_allowed = crate::store::is_store_access_allowed();
+        let will_allow = !currently_allowed;
+
+        {
+            let mut lock = busy.lock().unwrap();
+            *lock = true;
+        }
+
+        thread::spawn(move || {
+            crate::store::toggle_store_access(will_allow, protect);
+            let actual = update::check_update_status();
+            {
+                let mut vs = verified_status.lock().unwrap();
+                *vs = Some(actual);
+            }
+            {
+                let mut lock = busy.lock().unwrap();
+                *lock = false;
+            }
+        });
+    }
+
     pub fn toggle_bits(&mut self) {
         update::toggle_bits(self.update_blocked);
         self.refresh_status();

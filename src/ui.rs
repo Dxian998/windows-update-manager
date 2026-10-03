@@ -133,6 +133,18 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         format!("{} Protect Service Settings", protect_checkbox)
     };
 
+    let store_allowed = super::store::is_store_access_allowed();
+    let store_checkbox = if store_allowed { "[X]" } else { "[ ]" };
+    let store_menu_item = if app.update_blocked {
+        if store_allowed {
+            format!("{} Store & Xbox Access (Allowed)", store_checkbox)
+        } else {
+            format!("{} Store & Xbox Access (Blocked)", store_checkbox)
+        }
+    } else {
+        format!("{} Store & Xbox Access", store_checkbox)
+    };
+
     let bits_start = super::services::get_service_start_value("BITS");
     let bits_status_str = match bits_start {
         4 => "Disabled",
@@ -146,6 +158,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         vec![
             "Enable Windows Updates".to_string(),
             protect_label,
+            store_menu_item,
             bits_menu_item,
             "Check the source code".to_string(),
         ]
@@ -153,6 +166,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, app: &mut super::app::App) {
         vec![
             "Disable Windows Updates".to_string(),
             protect_label,
+            store_menu_item,
             bits_menu_item,
             "Check the source code".to_string(),
         ]
@@ -233,7 +247,7 @@ pub fn handle_key_event(key: KeyEvent, app: &mut super::app::App) -> bool {
             true
         }
         KeyCode::Down => {
-            let item_count = 4;
+            let item_count = 5;
             let selected = app.menu_state.selected().unwrap_or(0);
             let new_index = (selected + 1) % item_count;
             if new_index != selected {
@@ -246,8 +260,9 @@ pub fn handle_key_event(key: KeyEvent, app: &mut super::app::App) -> bool {
                 match selected {
                     0 => app.toggle_updates(),
                     1 => app.toggle_protect_settings(),
-                    2 => app.toggle_bits(),
-                    3 => app.open_github(),
+                    2 => app.toggle_store_access(),
+                    3 => app.toggle_bits(),
+                    4 => app.open_github(),
                     _ => (),
                 }
             }
